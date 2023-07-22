@@ -1,10 +1,11 @@
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.DependencyInjection;
 using PasswordManager.Database.PasswordManager;
 using PasswordManager.Database.PasswordManager.Models;
 using PasswordManager.Database.PasswordManager.Services;
 using PasswordManager.Database.Tenet;
 using PasswordManager.Database.Tenet.Models;
-using PasswordManager.Middlewares;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,7 +16,6 @@ builder.Services.AddSwaggerGen();
 
 builder.Services.AddScoped<IPasswordManagerTenetService, PasswordManagerTenetService>();
 
-builder.Services.AddScoped<SetUserTenetNodeMiddleware>();
 
 builder.Services.AddDbContext<TenetManagerDbContext>(options =>
 {
@@ -24,10 +24,10 @@ builder.Services.AddDbContext<TenetManagerDbContext>(options =>
 
 builder.Services.AddDbContext<PasswordManagerDbContext>((serviceProvider, options) =>
 {
-   
-    var passwordManagerTenetService=serviceProvider.GetRequiredService<IPasswordManagerTenetService>();
 
-    var connectionString=string.Format(builder.Configuration.GetConnectionString("PasswordManagerDb")!,passwordManagerTenetService.GetUserTenetId());
+    var passwordManagerTenetService = serviceProvider.GetRequiredService<IPasswordManagerTenetService>();
+
+    var connectionString = string.Format(builder.Configuration.GetConnectionString("PasswordManagerDb")!, passwordManagerTenetService.GetUserTenetId());
 
     options.UseSqlServer(connectionString).EnableSensitiveDataLogging(true);
 });
@@ -43,11 +43,10 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
-app.UseMiddleware<SetUserTenetNodeMiddleware>();
 
 app.MapPost("/SpecifiyUserTenet",
     async (TenetManagerDbContext tenetManagerDbContext
-        ,IServiceProvider serviceProvider) =>
+        , IServiceProvider serviceProvider) =>
     {
         var userTenet = new TenetUser(Guid.NewGuid());
         tenetManagerDbContext.TenetUsers.Add(userTenet);
@@ -55,28 +54,66 @@ app.MapPost("/SpecifiyUserTenet",
 
         using var serviceScope = serviceProvider.CreateScope();
 
-        var passwordManager=serviceScope.ServiceProvider.GetRequiredService<IPasswordManagerTenetService>();
+        var passwordManager = serviceScope.ServiceProvider.GetRequiredService<IPasswordManagerTenetService>();
         passwordManager.SetUserTenetId(userTenet.Id);
 
-        var passwordManagerDbContext = serviceScope.ServiceProvider.GetRequiredService<PasswordManagerDbContext>(); 
-        await passwordManagerDbContext.Database.MigrateAsync(); 
+        var passwordManagerDbContext = serviceScope.ServiceProvider.GetRequiredService<PasswordManagerDbContext>();
+        await passwordManagerDbContext.Database.MigrateAsync();
 
         return Results.Ok(userTenet);
     });
 
 app.MapPost("/AddPassword",
-    (AddPasswordApiModel addPasswordApiModel, PasswordManagerDbContext passwordManagerDbContext) =>
+    async (AddPasswordApiModel addPasswordApiModel, [FromHeader(Name = "UserId")] Guid userId
+        , IServiceProvider serviceProvider
+        , TenetManagerDbContext tenetUserManager) =>
     {
-    var password=new UserPassword(Guid.NewGuid(), addPasswordApiModel.Password);
-    passwordManagerDbContext.UserPasswords.Add(password);
-    passwordManagerDbContext.SaveChanges();
-    return Results.Ok(password);
-});
+        if (userId == Guid.Empty)
+            return Results.NotFound("User Id not found");
+
+        var tenetUser = await tenetUserManager.TenetUsers.FirstOrDefaultAsync(c => c.Id == userId);
+
+        if (tenetUser is null)
+            return Results.NotFound("Specified Tenet User Not Found");
+
+        using var serviceScope = serviceProvider.CreateScope();
+
+        var passwordManagerTenet = serviceScope.ServiceProvider.GetRequiredService<IPasswordManagerTenetService>();
+
+        passwordManagerTenet.SetUserTenetId(tenetUser.Id);
+
+        var passwordManagerDbContext = serviceScope.ServiceProvider.GetRequiredService<PasswordManagerDbContext>();
+
+        var password = new UserPassword(Guid.NewGuid(), addPasswordApiModel.Password);
+        passwordManagerDbContext.UserPasswords.Add(password);
+        await passwordManagerDbContext.SaveChangesAsync();
+        return Results.Ok(password);
+    });
 
 app.MapGet("/GetPasswords",
-    async (PasswordManagerDbContext passwordManagerDbContext) =>
+    async ( [FromHeader(Name = "UserId")] Guid userId
+        , TenetManagerDbContext tenetUserManager
+        ,IServiceProvider serviceProvider) =>
     {
-        var passwords=await passwordManagerDbContext.UserPasswords.ToListAsync();
+        if (userId == Guid.Empty)
+            return Results.NotFound("User Id not found");
+
+        var tenetUser = await tenetUserManager.TenetUsers.FirstOrDefaultAsync(c => c.Id == userId);
+
+        if (tenetUser is null)
+            return Results.NotFound("Specified Tenet User Not Found");
+
+        using var serviceScope = serviceProvider.CreateScope();
+
+        var passwordManagerTenet = serviceScope.ServiceProvider.GetRequiredService<IPasswordManagerTenetService>();
+
+        passwordManagerTenet.SetUserTenetId(tenetUser.Id);
+
+        var passwordManagerDbContext = serviceScope.ServiceProvider.GetRequiredService<PasswordManagerDbContext>();
+
+        passwordManagerTenet.SetUserTenetId(tenetUser.Id);
+
+        var passwords = await passwordManagerDbContext.UserPasswords.ToListAsync();
         return Results.Ok(passwords);
     });
 

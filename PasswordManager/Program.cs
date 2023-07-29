@@ -70,7 +70,6 @@ app.MapPost("/AddPassword",
     {
         if (userId ==null)
             return Results.NotFound("User Id not found");
-        var users=await tenetUserManager.TenetUsers.ToListAsync();
         var tenetUser = await tenetUserManager.TenetUsers.FirstOrDefaultAsync(c => c.Id == userId);
 
         if (tenetUser is null)

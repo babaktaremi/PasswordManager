@@ -48,14 +48,14 @@ app.MapPost("/SpecifiyUserTenet",
     async (TenetManagerDbContext tenetManagerDbContext
         , IServiceProvider serviceProvider) =>
     {
-        var userTenet = new TenetUser(Guid.NewGuid());
+        var userTenet = new TenetUser(new TenantId(Guid.NewGuid(),DateTime.Now));
         tenetManagerDbContext.TenetUsers.Add(userTenet);
         await tenetManagerDbContext.SaveChangesAsync();
 
         using var serviceScope = serviceProvider.CreateScope();
 
         var passwordManager = serviceScope.ServiceProvider.GetRequiredService<IPasswordManagerTenetService>();
-        passwordManager.SetUserTenetId(userTenet.Id);
+        passwordManager.SetUserTenetId(userTenet.Id.Id);
 
         var passwordManagerDbContext = serviceScope.ServiceProvider.GetRequiredService<PasswordManagerDbContext>();
         await passwordManagerDbContext.Database.MigrateAsync();
@@ -64,13 +64,13 @@ app.MapPost("/SpecifiyUserTenet",
     });
 
 app.MapPost("/AddPassword",
-    async (AddPasswordApiModel addPasswordApiModel, [FromHeader(Name = "UserId")] Guid userId
+    async (AddPasswordApiModel addPasswordApiModel, [FromHeader(Name = "UserId")] TenantId? userId
         , IServiceProvider serviceProvider
         , TenetManagerDbContext tenetUserManager) =>
     {
-        if (userId == Guid.Empty)
+        if (userId ==null)
             return Results.NotFound("User Id not found");
-
+        var users=await tenetUserManager.TenetUsers.ToListAsync();
         var tenetUser = await tenetUserManager.TenetUsers.FirstOrDefaultAsync(c => c.Id == userId);
 
         if (tenetUser is null)
@@ -80,7 +80,7 @@ app.MapPost("/AddPassword",
 
         var passwordManagerTenet = serviceScope.ServiceProvider.GetRequiredService<IPasswordManagerTenetService>();
 
-        passwordManagerTenet.SetUserTenetId(tenetUser.Id);
+        passwordManagerTenet.SetUserTenetId(tenetUser.Id.Id);
 
         var passwordManagerDbContext = serviceScope.ServiceProvider.GetRequiredService<PasswordManagerDbContext>();
 
@@ -98,7 +98,7 @@ app.MapGet("/GetPasswords",
         if (userId == Guid.Empty)
             return Results.NotFound("User Id not found");
 
-        var tenetUser = await tenetUserManager.TenetUsers.FirstOrDefaultAsync(c => c.Id == userId);
+        var tenetUser = await tenetUserManager.TenetUsers.FirstOrDefaultAsync(c => c.Id.Id == userId);
 
         if (tenetUser is null)
             return Results.NotFound("Specified Tenet User Not Found");
@@ -107,11 +107,11 @@ app.MapGet("/GetPasswords",
 
         var passwordManagerTenet = serviceScope.ServiceProvider.GetRequiredService<IPasswordManagerTenetService>();
 
-        passwordManagerTenet.SetUserTenetId(tenetUser.Id);
+        passwordManagerTenet.SetUserTenetId(tenetUser.Id.Id);
 
         var passwordManagerDbContext = serviceScope.ServiceProvider.GetRequiredService<PasswordManagerDbContext>();
 
-        passwordManagerTenet.SetUserTenetId(tenetUser.Id);
+        passwordManagerTenet.SetUserTenetId(tenetUser.Id.Id);
 
         var passwords = await passwordManagerDbContext.UserPasswords.ToListAsync();
         return Results.Ok(passwords);
